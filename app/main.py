@@ -27,6 +27,8 @@ from orm import Origin, Lease, init as db_init, migrate
 logger = logging.getLogger()
 load_dotenv('../version.env')
 
+TZ = datetime.now().astimezone().tzinfo
+
 VERSION, COMMIT, DEBUG = env('VERSION', 'unknown'), env('COMMIT', 'unknown'), bool(env('DEBUG', False))
 
 config = dict(openapi_url='/-/openapi.json', docs_url='/-/docs', redoc_url='/-/redoc')
@@ -101,6 +103,7 @@ async def _config():
         'LEASE_EXPIRE_DELTA': str(LEASE_EXPIRE_DELTA),
         'LEASE_RENEWAL_PERIOD': str(LEASE_RENEWAL_PERIOD),
         'CORS_ORIGINS': str(CORS_ORIGINS),
+        'TZ': str(TZ),
     })
 
 

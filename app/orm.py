@@ -1,4 +1,4 @@
-import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import Column, VARCHAR, CHAR, ForeignKey, DATETIME, update, and_, inspect
 from sqlalchemy.ext.declarative import declarative_base
@@ -86,9 +86,9 @@ class Lease(Base):
             'lease_ref': self.lease_ref,
             'origin_ref': self.origin_ref,
             # 'scope_ref': self.scope_ref,
-            'lease_created': self.lease_created.isoformat(),
-            'lease_expires': self.lease_expires.isoformat(),
-            'lease_updated': self.lease_updated.isoformat(),
+            'lease_created': self.lease_created.replace(tzinfo=timezone.utc).isoformat(),
+            'lease_expires': self.lease_expires.replace(tzinfo=timezone.utc).isoformat(),
+            'lease_updated': self.lease_updated.replace(tzinfo=timezone.utc).isoformat(),
         }
 
     @staticmethod
@@ -133,7 +133,7 @@ class Lease(Base):
         return entity
 
     @staticmethod
-    def renew(engine: Engine, lease: "Lease", lease_expires: datetime.datetime, lease_updated: datetime.datetime):
+    def renew(engine: Engine, lease: "Lease", lease_expires: datetime, lease_updated: datetime):
         session = sessionmaker(bind=engine)()
         x = dict(lease_expires=lease_expires, lease_updated=lease_updated)
         session.execute(update(Lease).where(and_(Lease.origin_ref == lease.origin_ref, Lease.lease_ref == lease.lease_ref)).values(**x))
