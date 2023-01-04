@@ -56,12 +56,12 @@ class Origin(Base):
         session.close()
 
     @staticmethod
-    def delete(engine: Engine, origins: ["Origin"] = None) -> int:
+    def delete(engine: Engine, origin_ref: str = None) -> int:
         session = sessionmaker(bind=engine)()
-        if origins is None:
+        if origin_ref is None:
             deletions = session.query(Origin).delete()
         else:
-            deletions = session.query(Origin).filter(Origin.origin_ref in origins).delete()
+            deletions = session.query(Origin).filter(Origin.origin_ref == origin_ref).delete()
         session.commit()
         session.close()
         return deletions
