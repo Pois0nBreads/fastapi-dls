@@ -6,16 +6,16 @@ from os.path import join, dirname
 from os import getenv as env
 
 from dotenv import load_dotenv
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.requests import Request
-import json
+from json import loads as json_loads
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from calendar import timegm
-from jose import jws, jwk, jwt
+from jose import jws, jwk, jwt, JWTError
 from jose.constants import ALGORITHMS
 from starlette.middleware.cors import CORSMiddleware
-from starlette.responses import StreamingResponse, JSONResponse, Response, RedirectResponse
+from starlette.responses import StreamingResponse, JSONResponse as JSONr, HTMLResponse as HTMLr, Response, RedirectResponse
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from starlette.staticfiles import StaticFiles
@@ -47,7 +47,7 @@ INSTANCE_REF = str(env('INSTANCE_REF', '10000000-0000-0000-0000-000000000001'))
 ALLOTMENT_REF = str(env('ALLOTMENT_REF', '20000000-0000-0000-0000-000000000001'))
 INSTANCE_KEY_RSA = load_key(str(env('INSTANCE_KEY_RSA', join(dirname(__file__), 'cert/instance.private.pem'))))
 INSTANCE_KEY_PUB = load_key(str(env('INSTANCE_KEY_PUB', join(dirname(__file__), 'cert/instance.public.pem'))))
-TOKEN_EXPIRE_DELTA = relativedelta(hours=1)  # days=1
+TOKEN_EXPIRE_DELTA = relativedelta(days=int(env('TOKEN_EXPIRE_DAYS', 1)), hours=int(env('TOKEN_EXPIRE_HOURS', 0)))
 LEASE_EXPIRE_DELTA = relativedelta(days=int(env('LEASE_EXPIRE_DAYS', 90)), hours=int(env('LEASE_EXPIRE_HOURS', 0)))
 LEASE_RENEWAL_PERIOD = float(env('LEASE_RENEWAL_PERIOD', 0.15))
 CORS_ORIGINS = str(env('CORS_ORIGINS', '')).split(',') if (env('CORS_ORIGINS')) else [f'https://{DLS_URL}']
@@ -85,12 +85,12 @@ async def _index(request: Request):
 
 @app.get('/-/health', summary='* Health')
 async def _health(request: Request):
-    return JSONResponse({'status': 'up'})
+    return JSONr({'status': 'up'})
 
 
 @app.get('/-/config', summary='* Config', description='returns environment variables.')
 async def _config():
-    return JSONResponse({
+    return JSONr({
         'VERSION': str(VERSION),
         'COMMIT': str(COMMIT),
         'DEBUG': str(DEBUG),
@@ -98,7 +98,7 @@ async def _config():
         'DLS_PORT': str(DLS_PORT),
         'SITE_KEY_XID': str(SITE_KEY_XID),
         'INSTANCE_REF': str(INSTANCE_REF),
-        'ALLOTMENT_REF': [ALLOTMENT_REF],
+        'ALLOTMENT_REF': [str(ALLOTMENT_REF)],
         'TOKEN_EXPIRE_DELTA': str(TOKEN_EXPIRE_DELTA),
         'LEASE_EXPIRE_DELTA': str(LEASE_EXPIRE_DELTA),
         'LEASE_RENEWAL_PERIOD': str(LEASE_RENEWAL_PERIOD),
@@ -146,7 +146,7 @@ async def _origins(request: Request, leases: bool = False):
             x['leases'] = list(map(lambda _: _.serialize(), Lease.find_by_origin_ref(db, origin.origin_ref)))
         response.append(x)
     session.close()
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 @app.delete('/-/origins', summary='* Origins')
@@ -159,7 +159,7 @@ async def _origins_delete(request: Request):
 async def _origins_delete_origin_ref(request: Request, origin_ref: str):
     if Origin.delete(db, origin_ref) == 1:
         return Response(status_code=201)
-    raise JSONResponse(status_code=404, content={'status': 404, 'detail': 'lease not found'})
+    raise JSONr(status_code=404, content={'status': 404, 'detail': 'lease not found'})
 
 
 @app.get('/-/leases', summary='* Leases')
@@ -173,14 +173,14 @@ async def _leases(request: Request, origin: bool = False):
             x['origin'] = session.query(Origin).filter(Origin.origin_ref == lease.origin_ref).first().serialize()
         response.append(x)
     session.close()
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 @app.delete('/-/lease/{lease_ref}', summary='* Lease')
 async def _lease_delete(request: Request, lease_ref: str):
     if Lease.delete(db, lease_ref) == 1:
         return Response(status_code=201)
-    raise HTTPException(status_code=404, detail='lease not found')
+    return JSONr(status_code=404, content={'status': 404, 'detail': 'lease not found'})
 
 
 # venv/lib/python3.9/site-packages/nls_core_service_instance/service_instance_token_manager.py
@@ -232,7 +232,7 @@ async def _client_token():
 # venv/lib/python3.9/site-packages/nls_services_auth/test/test_origins_controller.py
 @app.post('/auth/v1/origin', description='find or create an origin')
 async def auth_v1_origin(request: Request):
-    j, cur_time = json.loads((await request.body()).decode('utf-8')), datetime.utcnow()
+    j, cur_time = json_loads((await request.body()).decode('utf-8')), datetime.utcnow()
 
     origin_ref = j.get('candidate_origin_ref')
     logging.info(f'> [  origin  ]: {origin_ref}: {j}')
@@ -256,13 +256,13 @@ async def auth_v1_origin(request: Request):
         "sync_timestamp": cur_time.isoformat()
     }
 
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 # venv/lib/python3.9/site-packages/nls_services_auth/test/test_origins_controller.py
 @app.post('/auth/v1/origin/update', description='update an origin evidence')
 async def auth_v1_origin_update(request: Request):
-    j, cur_time = json.loads((await request.body()).decode('utf-8')), datetime.utcnow()
+    j, cur_time = json_loads((await request.body()).decode('utf-8')), datetime.utcnow()
 
     origin_ref = j.get('origin_ref')
     logging.info(f'> [  update  ]: {origin_ref}: {j}')
@@ -282,14 +282,14 @@ async def auth_v1_origin_update(request: Request):
         "sync_timestamp": cur_time.isoformat()
     }
 
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 # venv/lib/python3.9/site-packages/nls_services_auth/test/test_auth_controller.py
 # venv/lib/python3.9/site-packages/nls_core_auth/auth.py - CodeResponse
 @app.post('/auth/v1/code', description='get an authorization code')
 async def auth_v1_code(request: Request):
-    j, cur_time = json.loads((await request.body()).decode('utf-8')), datetime.utcnow()
+    j, cur_time = json_loads((await request.body()).decode('utf-8')), datetime.utcnow()
 
     origin_ref = j.get('origin_ref')
     logging.info(f'> [   code   ]: {origin_ref}: {j}')
@@ -314,22 +314,27 @@ async def auth_v1_code(request: Request):
         "prompts": None
     }
 
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 # venv/lib/python3.9/site-packages/nls_services_auth/test/test_auth_controller.py
 # venv/lib/python3.9/site-packages/nls_core_auth/auth.py - TokenResponse
 @app.post('/auth/v1/token', description='exchange auth code and verifier for token')
 async def auth_v1_token(request: Request):
-    j, cur_time = json.loads((await request.body()).decode('utf-8')), datetime.utcnow()
-    payload = jwt.decode(token=j.get('auth_code'), key=jwt_decode_key)
+    j, cur_time = json_loads((await request.body()).decode('utf-8')), datetime.utcnow()
+
+    try:
+        payload = jwt.decode(token=j.get('auth_code'), key=jwt_decode_key)
+    except JWTError as e:
+        return JSONr(status_code=400, content={'status': 400, 'title': 'invalid token', 'detail': str(e)})
 
     origin_ref = payload.get('origin_ref')
     logging.info(f'> [   auth   ]: {origin_ref}: {j}')
 
     # validate the code challenge
-    if payload.get('challenge') != b64enc(sha256(j.get('code_verifier').encode('utf-8')).digest()).rstrip(b'=').decode('utf-8'):
-        raise HTTPException(status_code=401, detail='expected challenge did not match verifier')
+    challenge = b64enc(sha256(j.get('code_verifier').encode('utf-8')).digest()).rstrip(b'=').decode('utf-8')
+    if payload.get('challenge') != challenge:
+        return JSONr(status_code=401, content={'status': 401, 'detail': 'expected challenge did not match verifier'})
 
     access_expires_on = cur_time + TOKEN_EXPIRE_DELTA
 
@@ -352,13 +357,18 @@ async def auth_v1_token(request: Request):
         "sync_timestamp": cur_time.isoformat(),
     }
 
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 # venv/lib/python3.9/site-packages/nls_services_lease/test/test_lease_multi_controller.py
 @app.post('/leasing/v1/lessor', description='request multiple leases (borrow) for current origin')
 async def leasing_v1_lessor(request: Request):
-    j, token, cur_time = json.loads((await request.body()).decode('utf-8')), __get_token(request), datetime.utcnow()
+    j, token, cur_time = json_loads((await request.body()).decode('utf-8')), __get_token(request), datetime.utcnow()
+
+    try:
+        token = __get_token(request)
+    except JWTError:
+        return JSONr(status_code=401, content={'status': 401, 'detail': 'token is not valid'})
 
     origin_ref = token.get('origin_ref')
     scope_ref_list = j.get('scope_ref_list')
@@ -367,7 +377,7 @@ async def leasing_v1_lessor(request: Request):
     lease_result_list = []
     for scope_ref in scope_ref_list:
         # if scope_ref not in [ALLOTMENT_REF]:
-        #     raise HTTPException(status_code=500, detail=f'no service instances found for scopes: ["{scope_ref}"]')
+        #     return JSONr(status_code=500, detail=f'no service instances found for scopes: ["{scope_ref}"]')
 
         lease_ref = str(uuid4())
         expires = cur_time + LEASE_EXPIRE_DELTA
@@ -394,7 +404,7 @@ async def leasing_v1_lessor(request: Request):
         "prompts": None
     }
 
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 # venv/lib/python3.9/site-packages/nls_services_lease/test/test_lease_multi_controller.py
@@ -414,7 +424,7 @@ async def leasing_v1_lessor_lease(request: Request):
         "prompts": None
     }
 
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 # venv/lib/python3.9/site-packages/nls_services_lease/test/test_lease_single_controller.py
@@ -428,7 +438,7 @@ async def leasing_v1_lease_renew(request: Request, lease_ref: str):
 
     entity = Lease.find_by_origin_ref_and_lease_ref(db, origin_ref, lease_ref)
     if entity is None:
-        raise HTTPException(status_code=404, detail='requested lease not available')
+        return JSONr(status_code=404, content={'status': 404, 'detail': 'requested lease not available'})
 
     expires = cur_time + LEASE_EXPIRE_DELTA
     response = {
@@ -442,7 +452,7 @@ async def leasing_v1_lease_renew(request: Request, lease_ref: str):
 
     Lease.renew(db, entity, expires, cur_time)
 
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 # venv/lib/python3.9/site-packages/nls_services_lease/test/test_lease_single_controller.py
@@ -455,12 +465,12 @@ async def leasing_v1_lease_delete(request: Request, lease_ref: str):
 
     entity = Lease.find_by_lease_ref(db, lease_ref)
     if entity.origin_ref != origin_ref:
-        raise HTTPException(status_code=403, detail='access or operation forbidden')
+        return JSONr(status_code=403, content={'status': 403, 'detail': 'access or operation forbidden'})
     if entity is None:
-        raise HTTPException(status_code=404, detail='requested lease not available')
+        return JSONr(status_code=404, content={'status': 404, 'detail': 'requested lease not available'})
 
     if Lease.delete(db, lease_ref) == 0:
-        raise HTTPException(status_code=404, detail='lease not found')
+        return JSONr(status_code=404, content={'status': 404, 'detail': 'lease not found'})
 
     response = {
         "lease_ref": lease_ref,
@@ -468,7 +478,7 @@ async def leasing_v1_lease_delete(request: Request, lease_ref: str):
         "sync_timestamp": cur_time.isoformat(),
     }
 
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 # venv/lib/python3.9/site-packages/nls_services_lease/test/test_lease_multi_controller.py
@@ -489,12 +499,12 @@ async def leasing_v1_lessor_lease_remove(request: Request):
         "prompts": None
     }
 
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 @app.post('/leasing/v1/lessor/shutdown', description='shutdown all leases')
 async def leasing_v1_lessor_shutdown(request: Request):
-    j, cur_time = json.loads((await request.body()).decode('utf-8')), datetime.utcnow()
+    j, cur_time = json_loads((await request.body()).decode('utf-8')), datetime.utcnow()
 
     token = j.get('token')
     token = jwt.decode(token=token, key=jwt_decode_key, algorithms=ALGORITHMS.RS256, options={'verify_aud': False})
@@ -511,7 +521,7 @@ async def leasing_v1_lessor_shutdown(request: Request):
         "prompts": None
     }
 
-    return JSONResponse(response)
+    return JSONr(response)
 
 
 if __name__ == '__main__':
