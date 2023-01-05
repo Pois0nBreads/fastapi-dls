@@ -50,7 +50,7 @@ build:apt:
     - cp .DEBIAN/env.default build/etc/fastapi-dls/env
     # create service file
     - mkdir -p build/etc/systemd/system
-    - cp .DEBIAN/fastapi-dls.service build/etc/systemd/system
+    - cp .DEBIAN/fastapi-dls.service build/etc/systemd/system/fastapi-dls.service
     # cd into "build/"
     - cd build/
   script:
@@ -280,7 +280,7 @@ release:prepare:
     - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
   script:
     - source version.env
-    - echo &VERSION
+    - echo $VERSION
   artifacts:
     reports:
       dotenv: version.env

@@ -9,68 +9,6 @@ Only the clients need a connection to this service on configured port.
 
 [[_TOC_]]
 
-## ToDo's
-
-- check why windows guests display "can't acquire license" although in log there is no message displayed and license is
-  also acquired successfully
-
-## Endpoints
-
-### `GET /`
-
-Redirect to `/-/readme`.
-
-### `GET /-/health`
-
-Status endpoint, used for *healthcheck*.
-
-### `GET /-/config`
-
-Shows current runtime environment variables and their values.
-
-### `GET /-/readme`
-
-HTML rendered README.md.
-
-### `GET /-/docs`, `GET /-/redoc`
-
-OpenAPI specifications rendered from `GET /-/openapi.json`.
-
-### `GET /-/manage`
-
-Shows a very basic UI to delete origins or leases.
-
-### `GET /-/origins?leases=false`
-
-List registered origins.
-
-| Query Parameter | Default | Usage                                |
-|-----------------|---------|--------------------------------------|
-| `leases`        | `false` | Include referenced leases per origin |
-
-### `DELETE /-/origins`
-
-Deletes all origins and their leases.
-
-### `GET /-/leases?origin=false`
-
-List current leases.
-
-| Query Parameter | Default | Usage                               |
-|-----------------|---------|-------------------------------------|
-| `origin`        | `false` | Include referenced origin per lease |
-
-### `DELETE /-/lease/{lease_ref}`
-
-Deletes an lease.
-
-### `GET /-/client-token`
-
-Generate client token, (see [installation](#installation)).
-
-### Others
-
-There are some more internal api endpoints for handling authentication and lease process.
 
 # Setup (Service)
 
@@ -96,6 +34,8 @@ openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout  $WORKING_DIR/webse
 
 **Start container**
 
+To test if everything is set up properly you can start container as following:
+
 ```shell
 docker volume create dls-db
 docker run -e DLS_URL=`hostname -i` -e DLS_PORT=443 -p 443:443 -v $WORKING_DIR:/app/cert -v dls-db:/app/database collinwebdesigns/fastapi-dls:latest
@@ -103,7 +43,7 @@ docker run -e DLS_URL=`hostname -i` -e DLS_PORT=443 -p 443:443 -v $WORKING_DIR:/
 
 **Docker-Compose / Deploy stack**
 
-Goto [`docker-compose.yml`](docker-compose.yml) for more advanced example.
+Goto [`docker-compose.yml`](docker-compose.yml) for more advanced example (with reverse proxy usage).
 
 ```yaml
 version: '3.9'
@@ -298,14 +238,16 @@ After first success you have to replace `--issue` with `--renew`.
 | `SITE_KEY_XID`         | `00000000-0000-0000-0000-000000000000` | Site identification uuid                                                                             |
 | `INSTANCE_REF`         | `10000000-0000-0000-0000-000000000001` | Instance identification uuid                                                                         |
 | `ALLOTMENT_REF`        | `20000000-0000-0000-0000-000000000001` | Allotment identification uuid                                                                        |
-| `INSTANCE_KEY_RSA`     | `<app-dir>/cert/instance.private.pem`  | Site-wide private RSA key for singing JWTs                                                           |
-| `INSTANCE_KEY_PUB`     | `<app-dir>/cert/instance.public.pem`   | Site-wide public key                                                                                 |
+| `INSTANCE_KEY_RSA`     | `<app-dir>/cert/instance.private.pem`  | Site-wide private RSA key for singing JWTs \*3                                                       |
+| `INSTANCE_KEY_PUB`     | `<app-dir>/cert/instance.public.pem`   | Site-wide public key \*3                                                                             |
 
 \*1 For example, if the lease period is one day and the renewal period is 20%, the client attempts to renew its license
 every 4.8 hours. If network connectivity is lost, the loss of connectivity is detected during license renewal and the
 client has 19.2 hours in which to re-establish connectivity before its license expires.
 
 \*2 Always use `https`, since guest-drivers only support secure connections!
+
+\*3 If you recreate instance keys you need to **recreate client-token for each guest**!
 
 # Setup (Client)
 
@@ -338,7 +280,67 @@ Restart-Service NVDisplay.ContainerLocalSystem
 'C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe' -q | Select-String "License"
 ```
 
+## Endpoints
+
+### `GET /`
+
+Redirect to `/-/readme`.
+
+### `GET /-/health`
+
+Status endpoint, used for *healthcheck*.
+
+### `GET /-/config`
+
+Shows current runtime environment variables and their values.
+
+### `GET /-/readme`
+
+HTML rendered README.md.
+
+### `GET /-/docs`, `GET /-/redoc`
+
+OpenAPI specifications rendered from `GET /-/openapi.json`.
+
+### `GET /-/manage`
+
+Shows a very basic UI to delete origins or leases.
+
+### `GET /-/origins?leases=false`
+
+List registered origins.
+
+| Query Parameter | Default | Usage                                |
+|-----------------|---------|--------------------------------------|
+| `leases`        | `false` | Include referenced leases per origin |
+
+### `DELETE /-/origins`
+
+Deletes all origins and their leases.
+
+### `GET /-/leases?origin=false`
+
+List current leases.
+
+| Query Parameter | Default | Usage                               |
+|-----------------|---------|-------------------------------------|
+| `origin`        | `false` | Include referenced origin per lease |
+
+### `DELETE /-/lease/{lease_ref}`
+
+Deletes an lease.
+
+### `GET /-/client-token`
+
+Generate client token, (see [installation](#installation)).
+
+### Others
+
+There are many other internal api endpoints for handling authentication and lease process.
+
 # Troubleshoot
+
+**Please make sure that fastapi-dls and your guests are on the same timezone!**
 
 ## Linux
 
@@ -358,6 +360,9 @@ This message can be ignored.
 
 - Ref. https://github.com/encode/uvicorn/issues/441
 
+<details>
+  <summary>Log example</summary>
+
 ```
 WARNING:uvicorn.error:Invalid HTTP request received.
 Traceback (most recent call last):
@@ -375,6 +380,8 @@ Traceback (most recent call last):
     raise LocalProtocolError("no request line received")
 h11._util.RemoteProtocolError: no request line received
 ```
+
+</details>
 
 ## Windows
 
@@ -443,14 +450,13 @@ Dec 20 17:53:34 ubuntu-grid-server nvidia-gridd[10354]: License acquired success
 
 </details>
 
-### Error on releasing leases on shutdown (fixed in 1.3 by using reverse proxy)
+### Error on releasing leases on shutdown (can be ignored and/or fixed with reverse proxy)
 
-**UPDATE for version `1.3`**: This issue can be fixed by using a reverse proxy (e.g. `nginx`). Please read section
-below.
+The driver wants to release current leases on shutting down windows. This endpoint needs to be a http endpoint.
+The error message can safely be ignored (since we have no license limitation :P) and looks like this:
 
-The driver wants to release current leases on shutting down windows. This endpoint needs to be a http endpoint and
-is currently not implemented. The error message looks like and safely can be ignored (since we have no license
-limitation :P):
+<details>
+  <summary>Log example</summary>
 
 ```
 <1>:NLS initialized
@@ -459,7 +465,7 @@ limitation :P):
 <0>:End Logging
 ```
 
-#### log with 1.3 and nginx as reverse proxy
+#### log with nginx as reverse proxy (see [docker-compose.yml](docker-compose.yml))
 
 ```
 <1>:NLS initialized
@@ -473,6 +479,8 @@ limitation :P):
 <0>:License returned successfully. (Info: 192.168.178.33)
 <0>:End Logging
 ```
+
+</details>
 
 # Credits
 
