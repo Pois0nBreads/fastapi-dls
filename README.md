@@ -70,7 +70,7 @@ volumes:
   dls-db:
 ```
 
-## Debian/Ubuntu (manual method using `git clone`)
+## Debian/Ubuntu (manual method using `git clone` and python virtual environment)
 
 Tested on `Debian 11 (bullseye)`, Ubuntu may also work.
 
@@ -175,6 +175,11 @@ Successful tested with:
 - Debian 12 (Bookworm) (works but not recommended because it is currently in *testing* state)
 - Ubuntu 22.10 (Kinetic Kudu)
 
+Not working with:
+
+- Debian 11 (Bullseye) and lower (missing `python-jose` dependency)
+- Ubuntu 22.04 (Jammy Jellyfish) (not supported as for 15.01.2023 due to [fastapi - uvicorn version missmatch](https://bugs.launchpad.net/ubuntu/+source/fastapi/+bug/1970557))
+
 **Run this on your server instance**
 
 First go to [GitLab-Registry](https://git.collinwebdesigns.de/oscar.krause/fastapi-dls/-/packages) and select your
@@ -201,13 +206,17 @@ Packages are available here:
 ```shell
 pacman -Sy
 FILENAME=/opt/fastapi-dls.pkg.tar.zst
-url -o $FILENAME <download-url>
+
+curl -o $FILENAME <download-url>
+# or
+wget -O $FILENAME <download-url>
+
 pacman -U --noconfirm fastapi-dls.pkg.tar.zst
 ```
 
 Start with `systemctl start fastapi-dls.service` and enable autostart with `systemctl enable fastapi-dls.service`.
 
-## Let's Encrypt Certificate
+## Let's Encrypt Certificate (optional)
 
 If you're using installation via docker, you can use `traefik`. Please refer to their documentation.
 
@@ -261,26 +270,67 @@ Successfully tested with this package versions:
 
 ## Linux
 
+Download *client-token* and place it into `/etc/nvidia/ClientConfigToken`:
+
 ```shell
-curl --insecure -L -X GET https://<dls-hostname-or-ip>/client-token -o /etc/nvidia/ClientConfigToken/client_configuration_token_$(date '+%d-%m-%Y-%H-%M-%S').tok
+curl --insecure -L -X GET https://<dls-hostname-or-ip>/-/client-token -o /etc/nvidia/ClientConfigToken/client_configuration_token_$(date '+%d-%m-%Y-%H-%M-%S').tok
+# or
+wget --no-check-certificate -O /etc/nvidia/ClientConfigToken/client_configuration_token_$(date '+%d-%m-%Y-%H-%M-%S').tok https://<dls-hostname-or-ip>/-/client-token
+```
+
+Restart `nvidia-gridd` service:
+
+```shell
 service nvidia-gridd restart
+```
+
+Check licensing status:
+
+```shell
 nvidia-smi -q | grep "License"
 ```
 
-## Windows
+Output should be something like:
 
-Download file and place it into `C:\Program Files\NVIDIA Corporation\vGPU Licensing\ClientConfigToken`.
-Now restart `NvContainerLocalSystem` service.
-
-**Power-Shell**
-
-```Shell
-curl.exe --insecure -L -X GET https://<dls-hostname-or-ip>/client-token -o "C:\Program Files\NVIDIA Corporation\vGPU Licensing\ClientConfigToken\client_configuration_token_$($(Get-Date).tostring('dd-MM-yy-hh-mm-ss')).tok"
-Restart-Service NVDisplay.ContainerLocalSystem
-'C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe' -q | Select-String "License"
+```text
+vGPU Software Licensed Product
+    License Status                    : Licensed (Expiry: YYYY-M-DD hh:mm:ss GMT)
 ```
 
-## Endpoints
+Done. For more information check [troubleshoot section](#troubleshoot).
+
+## Windows
+
+**Power-Shell** (run as administrator!)
+
+Download *client-token* and place it into `C:\Program Files\NVIDIA Corporation\vGPU Licensing\ClientConfigToken`:
+
+```shell
+curl.exe --insecure -L -X GET https://<dls-hostname-or-ip>/-/client-token -o "C:\Program Files\NVIDIA Corporation\vGPU Licensing\ClientConfigToken\client_configuration_token_$($(Get-Date).tostring('dd-MM-yy-hh-mm-ss')).tok"
+```
+
+Restart `NvContainerLocalSystem` service:
+
+```Shell
+Restart-Service NVDisplay.ContainerLocalSystem
+```
+
+Check licensing status:
+
+```shell
+& 'C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe' -q  | Select-String "License"
+```
+
+Output should be something like:
+
+```text
+vGPU Software Licensed Product
+    License Status                    : Licensed (Expiry: YYYY-M-DD hh:mm:ss GMT)
+```
+
+Done. For more information check [troubleshoot section](#troubleshoot).
+
+# Endpoints
 
 ### `GET /`
 

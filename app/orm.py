@@ -1,4 +1,5 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
+from dateutil.relativedelta import relativedelta
 
 from sqlalchemy import Column, VARCHAR, CHAR, ForeignKey, DATETIME, update, and_, inspect
 from sqlalchemy.ext.declarative import declarative_base
@@ -56,12 +57,12 @@ class Origin(Base):
         session.close()
 
     @staticmethod
-    def delete(engine: Engine, origin_ref: str = None) -> int:
+    def delete(engine: Engine, origins: ["Origin"] = None) -> int:
         session = sessionmaker(bind=engine)()
-        if origin_ref is None:
+        if origins is None:
             deletions = session.query(Origin).delete()
         else:
-            deletions = session.query(Origin).filter(Origin.origin_ref == origin_ref).delete()
+            deletions = session.query(Origin).filter(Origin.origin_ref in origins).delete()
         session.commit()
         session.close()
         return deletions
@@ -81,7 +82,10 @@ class Lease(Base):
     def __repr__(self):
         return f'Lease(origin_ref={self.origin_ref}, lease_ref={self.lease_ref}, expires={self.lease_expires})'
 
-    def serialize(self) -> dict:
+    def serialize(self, renewal_period: float, renewal_delta: timedelta) -> dict:
+        lease_renewal = int(Lease.calculate_renewal(renewal_period, renewal_delta).total_seconds())
+        lease_renewal = self.lease_updated + relativedelta(seconds=lease_renewal)
+
         return {
             'lease_ref': self.lease_ref,
             'origin_ref': self.origin_ref,
@@ -89,6 +93,7 @@ class Lease(Base):
             'lease_created': self.lease_created.replace(tzinfo=timezone.utc).isoformat(),
             'lease_expires': self.lease_expires.replace(tzinfo=timezone.utc).isoformat(),
             'lease_updated': self.lease_updated.replace(tzinfo=timezone.utc).isoformat(),
+            'lease_renewal': lease_renewal.replace(tzinfo=timezone.utc).isoformat(),
         }
 
     @staticmethod
@@ -155,6 +160,20 @@ class Lease(Base):
         session.commit()
         session.close()
         return deletions
+
+    @staticmethod
+    def calculate_renewal(renewal_period: float, delta: timedelta) -> timedelta:
+        """
+        import datetime
+        LEASE_RENEWAL_PERIOD=0.2  # 20%
+        delta = datetime.timedelta(days=1)
+        renew = delta.total_seconds() * LEASE_RENEWAL_PERIOD
+        renew = datetime.timedelta(seconds=renew)
+        expires = delta - renew  # 19.2
+        """
+        renew = delta.total_seconds() * renewal_period
+        renew = timedelta(seconds=renew)
+        return renew
 
 
 def init(engine: Engine):
