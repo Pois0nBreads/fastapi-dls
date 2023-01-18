@@ -161,7 +161,7 @@ async def _origins_delete(request: Request):
 async def _origins_delete_origin_ref(request: Request, origin_ref: str):
     if Origin.delete(db, origin_ref) == 1:
         return Response(status_code=201)
-    raise JSONr(status_code=404, content={'status': 404, 'detail': 'lease not found'})
+    return JSONr(status_code=404, content={'status': 404, 'detail': 'lease not found'})
 
 
 @app.get('/-/leases', summary='* Leases')
