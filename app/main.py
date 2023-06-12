@@ -30,7 +30,7 @@ TZ = datetime.now().astimezone().tzinfo
 
 VERSION, COMMIT, DEBUG = env('VERSION', 'unknown'), env('COMMIT', 'unknown'), bool(env('DEBUG', False))
 
-config = dict(openapi_url='/-/openapi.json', docs_url='/-/docs', redoc_url='/-/redoc')
+config = dict(openapi_url=None, docs_url=None, redoc_url=None)  # dict(openapi_url='/-/openapi.json', docs_url='/-/docs', redoc_url='/-/redoc')
 app = FastAPI(title='FastAPI-DLS', description='Minimal Delegated License Service (DLS).', version=VERSION, **config)
 app.mount('/static', StaticFiles(directory=join(dirname(__file__), 'static'), html=True), name='static'),
 templates = Jinja2Templates(directory=join(dirname(__file__), 'templates'))
@@ -87,7 +87,7 @@ async def _index(request: Request):
 
 
 @app.get('/-/health', summary='* Health')
-async def _health(request: Request):
+async def _health():
     return JSONr({'status': 'up'})
 
 
@@ -180,6 +180,12 @@ async def _leases(request: Request, origin: bool = False):
         response.append(x)
     session.close()
     return JSONr(response)
+
+
+@app.delete('/-/leases/expired', summary='* Leases')
+async def _lease_delete_expired(request: Request):
+    Lease.delete_expired(db)
+    return Response(status_code=201)
 
 
 @app.delete('/-/lease/{lease_ref}', summary='* Lease')

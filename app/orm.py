@@ -1,10 +1,9 @@
 from datetime import datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 
-from sqlalchemy import Column, VARCHAR, CHAR, ForeignKey, DATETIME, update, and_, inspect
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy import Column, VARCHAR, CHAR, ForeignKey, DATETIME, update, and_, inspect, text
 from sqlalchemy.engine import Engine
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, declarative_base
 
 Base = declarative_base()
 
@@ -162,6 +161,14 @@ class Lease(Base):
         return deletions
 
     @staticmethod
+    def delete_expired(engine: Engine) -> int:
+        session = sessionmaker(bind=engine)()
+        deletions = session.query(Lease).filter(Lease.lease_expires <= datetime.utcnow()).delete()
+        session.commit()
+        session.close()
+        return deletions
+
+    @staticmethod
     def calculate_renewal(renewal_period: float, delta: timedelta) -> timedelta:
         """
         import datetime
@@ -190,7 +197,7 @@ def init(engine: Engine):
     session = sessionmaker(bind=engine)()
     for table in tables:
         if not db.dialect.has_table(engine.connect(), table.__tablename__):
-            session.execute(str(table.create_statement(engine)))
+            session.execute(text(str(table.create_statement(engine))))
             session.commit()
     session.close()
 

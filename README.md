@@ -9,11 +9,11 @@ Only the clients need a connection to this service on configured port.
 
 **Official Links**
 
-- https://git.collinwebdesigns.de/oscar.krause/fastapi-dls
-- https://gitea.publichub.eu/oscar.krause/fastapi-dls
-- Docker Image `collinwebdesigns/fastapi-dls:latest`
+- https://git.collinwebdesigns.de/oscar.krause/fastapi-dls (Private Git)
+- https://gitea.publichub.eu/oscar.krause/fastapi-dls (Public Git)
+- https://hub.docker.com/r/collinwebdesigns/fastapi-dls (Docker-Hub `collinwebdesigns/fastapi-dls:latest`)
 
-*All other repositories are forks!*
+*All other repositories are forks! (which  is no bad - just for information and bug reports)*
 
 ---
 
@@ -21,14 +21,14 @@ Only the clients need a connection to this service on configured port.
 
 # Setup (Service)
 
-**System requirements**:
+**System requirements**
 
 - 256mb ram
 - 4gb hdd
 
 Tested with Ubuntu 22.10 (from Proxmox templates), actually its consuming 100mb ram and 750mb hdd.
 
-**Prepare your system**:
+**Prepare your system**
 
 - Make sure your timezone is set correct on you fastapi-dls server and your client
 
@@ -38,6 +38,8 @@ Docker-Images are available here:
 
 - [Docker-Hub](https://hub.docker.com/repository/docker/collinwebdesigns/fastapi-dls): `collinwebdesigns/fastapi-dls:latest`
 - [GitLab-Registry](https://git.collinwebdesigns.de/oscar.krause/fastapi-dls/container_registry): `registry.git.collinwebdesigns.de/oscar.krause/fastapi-dls/main:latest`
+
+The images include database drivers for `postgres`, `mysql`, `mariadb` and `sqlite`.
 
 **Run this on the Docker-Host**
 
@@ -69,10 +71,12 @@ Goto [`docker-compose.yml`](docker-compose.yml) for more advanced example (with 
 version: '3.9'
 
 x-dls-variables: &dls-variables
+  TZ: Europe/Berlin # REQUIRED, set your timezone correctly on fastapi-dls AND YOUR CLIENTS !!!
   DLS_URL: localhost # REQUIRED, change to your ip or hostname
   DLS_PORT: 443
-  LEASE_EXPIRE_DAYS: 90
+  LEASE_EXPIRE_DAYS: 90  # 90 days is maximum
   DATABASE: sqlite:////app/database/db.sqlite
+  DEBUG: false
 
 services:
   dls:
@@ -85,7 +89,12 @@ services:
     volumes:
       - /opt/docker/fastapi-dls/cert:/app/cert
       - dls-db:/app/database
-
+    logging:  # optional, for those who do not need logs
+      driver: "json-file"
+      options:
+        max-file: 5
+        max-size: 10m
+            
 volumes:
   dls-db:
 ```
@@ -93,6 +102,8 @@ volumes:
 ## Debian/Ubuntu (manual method using `git clone` and python virtual environment)
 
 Tested on `Debian 11 (bullseye)`, Ubuntu may also work.
+
+**Make sure you are logged in as root.**
 
 **Install requirements**
 
@@ -118,7 +129,7 @@ chown -R www-data:www-data $WORKING_DIR
 
 ```shell
 WORKING_DIR=/opt/fastapi-dls/app/cert
-mkdir $WORKING_DIR
+mkdir -p $WORKING_DIR
 cd $WORKING_DIR
 # create instance private and public key for singing JWT's
 openssl genrsa -out $WORKING_DIR/instance.private.pem 2048 
@@ -134,12 +145,15 @@ This is only to test whether the service starts successfully.
 
 ```shell
 cd /opt/fastapi-dls/app
+sudo -u www-data /opt/fastapi-dls/venv/bin/uvicorn main:app --app-dir=/opt/fastapi-dls/app
+# or
 su - www-data -c "/opt/fastapi-dls/venv/bin/uvicorn main:app --app-dir=/opt/fastapi-dls/app"
 ```
 
 **Create config file**
 
 ```shell
+mkdir /etc/fastapi-dls
 cat <<EOF >/etc/fastapi-dls/env
 DLS_URL=127.0.0.1
 DLS_PORT=443
@@ -184,6 +198,110 @@ EOF
 Now you have to run `systemctl daemon-reload`. After that you can start service
 with `systemctl start fastapi-dls.service` and enable autostart with `systemctl enable fastapi-dls.service`.
 
+## openSUSE Leap (manual method using `git clone` and python virtual environment)
+
+Tested on `openSUSE Leap 15.4`, openSUSE Tumbleweed may also work.
+
+**Install requirements**
+
+```shell
+zypper in -y python310 python3-virtualenv python3-pip
+```
+
+**Install FastAPI-DLS**
+
+```shell
+BASE_DIR=/opt/fastapi-dls
+SERVICE_USER=dls
+mkdir -p ${BASE_DIR}
+cd ${BASE_DIR}
+git clone https://git.collinwebdesigns.de/oscar.krause/fastapi-dls .
+python3.10 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+deactivate
+useradd -r ${SERVICE_USER} -M -d /opt/fastapi-dls
+chown -R ${SERVICE_USER} ${BASE_DIR}
+```
+
+**Create keypair and webserver certificate**
+
+```shell
+CERT_DIR=${BASE_DIR}/app/cert
+SERVICE_USER=dls
+mkdir ${CERT_DIR}
+cd ${CERT_DIR}
+# create instance private and public key for singing JWT's
+openssl genrsa -out ${CERT_DIR}/instance.private.pem 2048 
+openssl rsa -in ${CERT_DIR}/instance.private.pem -outform PEM -pubout -out ${CERT_DIR}/instance.public.pem
+# create ssl certificate for integrated webserver (uvicorn) - because clients rely on ssl
+openssl req -x509 -nodes -days 3650 -newkey rsa:2048 -keyout  ${CERT_DIR}/webserver.key -out ${CERT_DIR}/webserver.crt
+chown -R ${SERVICE_USER} ${CERT_DIR}
+```
+
+**Test Service**
+
+This is only to test whether the service starts successfully.
+
+```shell
+BASE_DIR=/opt/fastapi-dls
+SERVICE_USER=dls
+cd ${BASE_DIR}
+sudo -u ${SERVICE_USER} ${BASE_DIR}/venv/bin/uvicorn main:app --app-dir=${BASE_DIR}/app
+# or
+su - ${SERVICE_USER} -c "${BASE_DIR}/venv/bin/uvicorn main:app --app-dir=${BASE_DIR}/app"
+```
+
+**Create config file**
+
+```shell
+BASE_DIR=/opt/fastapi-dls
+cat <<EOF >/etc/fastapi-dls/env
+# Adjust DSL_URL as needed (accessing from LAN won't work with 127.0.0.1)
+DLS_URL=127.0.0.1
+DLS_PORT=443
+LEASE_EXPIRE_DAYS=90
+DATABASE=sqlite:///${BASE_DIR}/app/db.sqlite
+
+EOF
+```
+
+**Create service**
+
+```shell
+BASE_DIR=/opt/fastapi-dls
+SERVICE_USER=dls
+cat <<EOF >/etc/systemd/system/fastapi-dls.service
+[Unit]
+Description=Service for fastapi-dls vGPU licensing service
+After=network.target
+
+[Service]
+User=${SERVICE_USER}
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+WorkingDirectory=${BASE_DIR}/app
+EnvironmentFile=/etc/fastapi-dls/env
+ExecStart=${BASE_DIR}/venv/bin/uvicorn main:app \\
+  --env-file /etc/fastapi-dls/env \\
+  --host \$DLS_URL --port \$DLS_PORT \\
+  --app-dir ${BASE_DIR}/app \\
+  --ssl-keyfile ${BASE_DIR}/app/cert/webserver.key \\
+  --ssl-certfile ${BASE_DIR}/app/cert/webserver.crt \\
+  --proxy-headers
+Restart=always
+KillSignal=SIGQUIT
+Type=simple
+NotifyAccess=all
+
+[Install]
+WantedBy=multi-user.target
+
+EOF
+```
+
+Now you have to run `systemctl daemon-reload`. After that you can start service
+with `systemctl start fastapi-dls.service` and enable autostart with `systemctl enable fastapi-dls.service`.
+
 ## Debian/Ubuntu (using `dpkg`)
 
 Packages are available here:
@@ -192,7 +310,7 @@ Packages are available here:
 
 Successful tested with:
 
-- Debian 12 (Bookworm) (works but not recommended because it is currently in *testing* state)
+- Debian 12 (Bookworm)
 - Ubuntu 22.10 (Kinetic Kudu)
 
 Not working with:
@@ -236,6 +354,19 @@ pacman -U --noconfirm fastapi-dls.pkg.tar.zst
 
 Start with `systemctl start fastapi-dls.service` and enable autostart with `systemctl enable fastapi-dls.service`.
 
+## unRAID
+
+1. Download [this xml file](.UNRAID/FastAPI-DLS.xml)
+2. Put it in /boot/config/plugins/dockerMan/templates-user/
+3. Go to Docker page, scroll down to `Add Container`, click on Template list and choose `FastAPI-DLS`
+4. Open terminal/ssh, follow the instructions in overview description
+5. Setup your container `IP`, `Port`, `DLS_URL` and `DLS_PORT`
+6. Apply and let it boot up
+
+*Unraid users must also make sure they have Host access to custom networks enabled if unraid is the vgpu guest*.
+
+Continue [here](#unraid-guest) for docker guest setup.
+
 ## Let's Encrypt Certificate (optional)
 
 If you're using installation via docker, you can use `traefik`. Please refer to their documentation.
@@ -274,9 +405,9 @@ After first success you have to replace `--issue` with `--renew`.
 every 4.8 hours. If network connectivity is lost, the loss of connectivity is detected during license renewal and the
 client has 19.2 hours in which to re-establish connectivity before its license expires.
 
-\*2 Always use `https`, since guest-drivers only support secure connections!
+\*3 Always use `https`, since guest-drivers only support secure connections!
 
-\*3 If you recreate instance keys you need to **recreate client-token for each guest**!
+\*4 If you recreate instance keys you need to **recreate client-token for each guest**!
 
 # Setup (Client)
 
@@ -284,9 +415,15 @@ client has 19.2 hours in which to re-establish connectivity before its license e
 
 Successfully tested with this package versions:
 
-- `14.3` (Linux-Host: `510.108.03`, Linux-Guest: `510.108.03`, Windows-Guest: `513.91`)
-- `14.4` (Linux-Host: `510.108.03`, Linux-Guest: `510.108.03`, Windows-Guest: `514.08`)
-- `15.0` (Linux-Host: `525.60.12`, Linux-Guest: `525.60.13`, Windows-Guest: `527.41`)
+| vGPU Suftware | vGPU Manager | Linux Driver | Windows Driver | Release Date  |
+|---------------|--------------|--------------|----------------|---------------|
+| `15.2`        | `525.105.14` | `525.105.17` | `528.89`       | March 2023    |
+| `15.1`        | `525.85.07`  | `525.85.05`  | `528.24`       | January 2023  |
+| `15.0`        | `525.60.12`  | `525.60.13`  | `527.41`       | December 2022 |
+| `14.4`        | `510.108.03` | `510.108.03` | `514.08`       | December 2022 |
+| `14.3`        | `510.108.03` | `510.108.03` | `513.91`       | November 2022 |
+
+- https://docs.nvidia.com/grid/index.html
 
 ## Linux
 
@@ -338,7 +475,7 @@ Restart-Service NVDisplay.ContainerLocalSystem
 Check licensing status:
 
 ```shell
-& 'C:\Program Files\NVIDIA Corporation\NVSMI\nvidia-smi.exe' -q  | Select-String "License"
+& 'nvidia-smi' -q  | Select-String "License"
 ```
 
 Output should be something like:
@@ -349,6 +486,19 @@ vGPU Software Licensed Product
 ```
 
 Done. For more information check [troubleshoot section](#troubleshoot).
+
+## unRAID Guest
+
+1. Make sure you create a folder in a linux filesystem (BTRFS/XFS/EXT4...), I recommend `/mnt/user/system/nvidia` (this is where docker and libvirt preferences are saved, so it's a good place to have that)
+2. Edit the script to put your `DLS_IP`, `DLS_PORT` and `TOKEN_PATH`, properly 
+3. Install `User Scripts` plugin from *Community Apps* (the Apps page, or google User Scripts Unraid if you're not using CA)
+4. Go to `Settings > Users Scripts > Add New Script`
+5. Give it a name  (the name must not contain spaces preferably)
+6. Click on the *gear icon* to the left of the script name then edit script
+7. Paste the script and save
+8. Set schedule to `At First Array Start Only`
+9. Click on Apply 
+
 
 # Endpoints
 
@@ -367,10 +517,6 @@ Shows current runtime environment variables and their values.
 ### `GET /-/readme`
 
 HTML rendered README.md.
-
-### `GET /-/docs`, `GET /-/redoc`
-
-OpenAPI specifications rendered from `GET /-/openapi.json`.
 
 ### `GET /-/manage`
 
@@ -556,5 +702,8 @@ The error message can safely be ignored (since we have no license limitation :P)
 
 Thanks to vGPU community and all who uses this project and report bugs.
 
-Special thanks to @samicrusader who created build file for ArchLinux.
+Special thanks to 
 
+- @samicrusader who created build file for ArchLinux
+- @cyrus who wrote the section for openSUSE
+- @midi who wrote the section for unRAID
